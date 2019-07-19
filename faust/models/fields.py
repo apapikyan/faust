@@ -6,6 +6,7 @@ from functools import lru_cache
 from operator import attrgetter
 from typing import (
     Any,
+    Callable,
     Iterable,
     Mapping,
     Optional,
@@ -95,7 +96,24 @@ class FieldDescriptor(FieldDescriptorT[T]):
     #: Default value for non-required field.
     default: Optional[T] = None  # noqa: E704
 
+    #: Coerce value to field descriptors type.
+    #: This means assigning a value to this field, will first convert
+    #: the value to the requested type.
+    #: For example for a :class:`FloatField` the input will be converted
+    #: to float, and passing any value that cannot be converted to float
+    #: will raise an error.
+    #:
+    #: If coerce is not enabled you can store any type of value.
+    #:
+    #: Note: :const:`None` is usually considered a valid value for any field
+    #: but this depends on the descriptor type.
     coerce: bool = False
+
+    #: Exclude field from model representation.
+    #: This means the field will not be part of the serialized structure.
+    #: (``Model.dumps()``, ``Model.asdict()``, and
+    #: ``Model.to_representation()``).
+    exclude: bool = False
 
     def __init__(self, *,
                  field: str = None,
@@ -107,6 +125,8 @@ class FieldDescriptor(FieldDescriptorT[T]):
                  coerce: bool = None,
                  generic_type: Type = None,
                  member_type: Type = None,
+                 exclude: bool = None,
+                 date_parser: Callable[[Any], datetime] = None,
                  **options: Any) -> None:
         self.field = cast(str, field)
         self.type = cast(Type[T], type)
@@ -119,7 +139,12 @@ class FieldDescriptor(FieldDescriptorT[T]):
         self._copy_descriptors(self.type)
         if coerce is not None:
             self.coerce = coerce
+        if exclude is not None:
+            self.exclude = exclude
         self.options = options
+        if date_parser is None:
+            date_parser = iso8601.parse
+        self.date_parser: Callable[[Any], datetime] = date_parser
 
     def __set_name__(self, owner: Type[ModelT], name: str) -> None:
         self.model = owner
@@ -139,6 +164,8 @@ class FieldDescriptor(FieldDescriptorT[T]):
             'coerce': self.coerce,
             'generic_type': self.generic_type,
             'member_type': self.member_type,
+            'exclude': self.exclude,
+            'date_parser': self.date_parser,
             **self.options,
         }
 
@@ -335,11 +362,13 @@ class StringField(CharField[str]):
 
 
 class DatetimeField(FieldDescriptor[datetime]):
-    coerce = True  # always coerces, for info only
 
     def prepare_value(self, value: Any) -> Optional[datetime]:
-        if value is not None and not isinstance(value, datetime):
-            return iso8601.parse(value)
+        if self.should_coerce(value):
+            if value is not None and not isinstance(value, datetime):
+                return self.date_parser(value)
+            else:
+                return value
         else:
             return value
 

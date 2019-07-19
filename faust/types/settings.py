@@ -124,6 +124,10 @@ TABLE_MANAGER_TYPE = 'faust.tables.TableManager'
 #: Path to table class, used as default for :setting:`Table`.
 TABLE_TYPE = 'faust.Table'
 
+#: Tables keep a cache of key to partition number. This value
+#: configures the maximum size of that cache.
+TABLE_KEY_INDEX_SIZE = 1000
+
 #: Path to "table of sets" class, used as default for :setting:`SetTable`.
 SET_TABLE_TYPE = 'faust.SetTable'
 
@@ -158,7 +162,7 @@ MONITOR_TYPE = 'faust.sensors:Monitor'
 BROKER_CLIENT_ID = f'faust-{faust_version}'
 
 #: Kafka consumer request timeout (``request_timeout_ms``).
-BROKER_REQUEST_TIMEOUT = 40.0
+BROKER_REQUEST_TIMEOUT = 90.0
 
 #: How often we commit acknowledged messages: every n messages.
 #: Used as the default value for :setting:`broker_commit_every`.
@@ -296,7 +300,6 @@ class Settings(abc.ABC):
     broker_client_id: str = BROKER_CLIENT_ID
     broker_commit_every: int = BROKER_COMMIT_EVERY
     broker_check_crcs: bool = True
-    broker_max_poll_records: Optional[int] = BROKER_MAX_POLL_RECORDS
     broker_max_poll_interval: float = BROKER_MAX_POLL_INTERVAL
     _broker_credentials: Optional[CredentialsT] = None
     id_format: str = '{id}-v{self.version}'
@@ -312,6 +315,7 @@ class Settings(abc.ABC):
     stream_publish_on_commit: bool = STREAM_PUBLISH_ON_COMMIT
     ssl_context: Optional[ssl.SSLContext] = None
     table_standby_replicas: int = 1
+    table_key_index_size: int = TABLE_KEY_INDEX_SIZE
     topic_replication_factor: int = 1
     topic_partitions: int = 8  # noqa: E704
     topic_allow_declare: bool = True
@@ -445,6 +449,7 @@ class Settings(abc.ABC):
             loghandlers: List[logging.Handler] = None,
             table_cleanup_interval: Seconds = None,
             table_standby_replicas: int = None,
+            table_key_index_size: int = None,
             topic_replication_factor: int = None,
             topic_partitions: int = None,
             topic_allow_declare: bool = None,
@@ -506,27 +511,35 @@ class Settings(abc.ABC):
         if debug is not None:
             self.debug = debug
         if broker_consumer is not None:
-            self.broker_consumer = broker_consumer
+            # XXX have to cast to silence mypy bug
+            self.broker_consumer = cast(List[URL], broker_consumer)
         if broker_producer is not None:
-            self.broker_producer = broker_producer
+            # XXX have to cast to silence mypy bug
+            self.broker_producer = cast(List[URL], broker_producer)
         self.ssl_context = ssl_context
         self.store = self._first_not_none(store, STORE_URL)
         self.cache = self._first_not_none(cache, CACHE_URL)
         self.web = self._first_not_none(web, WEB_URL)
         self.web_enabled = web_enabled
         if processing_guarantee is not None:
-            self.processing_guarantee = processing_guarantee
+            # XXX have to cast to silence mypy bug
+            self.processing_guarantee = cast(
+                ProcessingGuarantee, processing_guarantee)
         if autodiscover is not None:
             self.autodiscover = autodiscover
         if broker_client_id is not None:
             self.broker_client_id = broker_client_id
         if canonical_url:
-            self.canonical_url = canonical_url
+            # XXX have to cast to silence mypy bug
+            self.canonical_url = cast(URL, canonical_url)
         # datadir is a format string that can contain e.g. {conf.id}
-        self.datadir = datadir or DATADIR
-        self.tabledir = tabledir or TABLEDIR
+        # XXX have to cast to silence mypy bug
+        self.datadir = cast(Path, datadir or DATADIR)
+        # XXX have to cast to silence mypy bug
+        self.tabledir = cast(Path, tabledir or TABLEDIR)
         if broker_credentials is not None:
-            self.broker_credentials = broker_credentials
+            # XXX have to cast to silence mypy bug
+            self.broker_credentials = cast(CredentialsT, broker_credentials)
         if broker_request_timeout is not None:
             self.broker_request_timeout = want_seconds(broker_request_timeout)
         self.broker_commit_interval = (
@@ -559,6 +572,8 @@ class Settings(abc.ABC):
             self.value_serializer = value_serializer
         if table_standby_replicas is not None:
             self.table_standby_replicas = table_standby_replicas
+        if table_key_index_size is not None:
+            self.table_key_index_size = table_key_index_size
         if topic_replication_factor is not None:
             self.topic_replication_factor = topic_replication_factor
         if topic_partitions is not None:
@@ -615,7 +630,8 @@ class Settings(abc.ABC):
         if web_host is not None:
             self.web_host = web_host
         if web_transport is not None:
-            self.web_transport = web_transport
+            # XXX have to cast to silence mypy bug
+            self.web_transport = cast(URL, web_transport)
         if web_in_thread is not None:
             self.web_in_thread = web_in_thread
         if web_cors_options is not None:
@@ -634,22 +650,32 @@ class Settings(abc.ABC):
         if reply_expires is not None:
             self.reply_expires = reply_expires
 
-        self.agent_supervisor = agent_supervisor or AGENT_SUPERVISOR_TYPE
+        self.agent_supervisor = (  # type: ignore
+            agent_supervisor or AGENT_SUPERVISOR_TYPE)
 
-        self.Agent = Agent or AGENT_TYPE
-        self.ConsumerScheduler = ConsumerScheduler or CONSUMER_SCHEDULER_TYPE
-        self.Stream = Stream or STREAM_TYPE
-        self.Table = Table or TABLE_TYPE
-        self.SetTable = SetTable or SET_TABLE_TYPE
-        self.TableManager = TableManager or TABLE_MANAGER_TYPE
-        self.Serializers = Serializers or REGISTRY_TYPE
-        self.Worker = Worker or WORKER_TYPE
-        self.PartitionAssignor = PartitionAssignor or PARTITION_ASSIGNOR_TYPE
-        self.LeaderAssignor = LeaderAssignor or LEADER_ASSIGNOR_TYPE
-        self.Router = Router or ROUTER_TYPE
-        self.Topic = Topic or TOPIC_TYPE
-        self.HttpClient = HttpClient or HTTP_CLIENT_TYPE
-        self.Monitor = Monitor or MONITOR_TYPE
+        self.Agent = cast(AgentT, Agent or AGENT_TYPE)
+        self.ConsumerScheduler = cast(
+            Type[SchedulingStrategyT],
+            ConsumerScheduler or CONSUMER_SCHEDULER_TYPE)
+        self.Stream = cast(Type[StreamT], Stream or STREAM_TYPE)
+        self.Table = cast(Type[TableT], Table or TABLE_TYPE)
+        self.SetTable = cast(Type[TableT], SetTable or SET_TABLE_TYPE)
+        self.TableManager = cast(
+            Type[TableManagerT],
+            TableManager or TABLE_MANAGER_TYPE)
+        self.Serializers = cast(Type[RegistryT], Serializers or REGISTRY_TYPE)
+        self.Worker = cast(Type[_WorkerT], Worker or WORKER_TYPE)
+        self.PartitionAssignor = cast(
+            Type[PartitionAssignorT],
+            PartitionAssignor or PARTITION_ASSIGNOR_TYPE)
+        self.LeaderAssignor = cast(
+            Type[LeaderAssignorT],
+            LeaderAssignor or LEADER_ASSIGNOR_TYPE)
+        self.Router = cast(Type[RouterT], Router or ROUTER_TYPE)
+        self.Topic = cast(Type[TopicT], Topic or TOPIC_TYPE)
+        self.HttpClient = cast(
+            Type[HttpClientT], HttpClient or HTTP_CLIENT_TYPE)
+        self.Monitor = cast(Type[SensorT], Monitor or MONITOR_TYPE)
         self.__dict__.update(kwargs)  # arbitrary configuration
         object.__setattr__(self, '_accessed', set())
         object.__setattr__(self, '_initializing', False)

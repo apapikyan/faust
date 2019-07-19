@@ -2,6 +2,7 @@ import abc
 from datetime import datetime
 from decimal import Decimal
 from typing import ClassVar, Dict, List, Mapping, Optional, Set, Tuple
+from dateutil.parser import parse as parse_date
 import faust
 from faust.exceptions import ValidationError
 from faust.models import maybe_model
@@ -137,6 +138,9 @@ def test_datetimes():
     class Date(Record, coerce=True):
         date: datetime
 
+    class OptionalDate(Record, coerce=True):
+        date: Optional[datetime]
+
     class TupleOfDate(Record, coerce=True):
         dates: Tuple[datetime]
 
@@ -157,6 +161,8 @@ def test_datetimes():
 
     n1 = datetime.utcnow()
     assert Date.loads(Date(date=n1).dumps()).date == n1
+    assert OptionalDate.loads(OptionalDate(date=n1).dumps()).date == n1
+    assert OptionalDate.loads(OptionalDate(date=None).dumps()).date is None
     n2 = datetime.utcnow()
     assert ListOfDate.loads(ListOfDate(
         dates=[n1, n2]).dumps()).dates == [n1, n2]
@@ -1307,6 +1313,28 @@ def test_implicit_descritor_types():
     assert isinstance(X.e, DecimalField)
 
 
+def test_exclude():
+
+    class X(Record):
+        a: str
+        b: str
+        c: str = StringField(exclude=True)
+
+    x = X('A', 'B', 'C')
+
+    assert X.a.required
+    assert X.b.required
+    assert X.c.required
+
+    assert not X.a.exclude
+    assert not X.b.exclude
+    assert X.c.exclude
+
+    assert x.asdict() == {'a': 'A', 'b': 'B'}
+
+    assert 'c' not in x.to_representation()
+
+
 def test_custom_field_validation():
 
     class ChoiceField(FieldDescriptor[str]):
@@ -1328,3 +1356,29 @@ def test_custom_field_validation():
 
     with pytest.raises(ValidationError):
         Order(side='LEFT')
+
+
+def test_datetime_does_not_coerce():
+
+    class X(Record, coerce=False):
+        d: datetime
+
+    date_string = 'Sat Jan 12 00:44:36 +0000 2019'
+    assert X(date_string).d == date_string
+
+
+def test_datetime_custom_date_parser():
+
+    class X(Record, coerce=True, date_parser=parse_date):
+        d: datetime
+
+    date_string = 'Sat Jan 12 00:44:36 +0000 2019'
+    assert X(date_string).d == parse_date(date_string)
+
+
+class test_float_does_not_coerce():
+
+    class X(Record, coerce=False):
+        f: float
+
+    assert X('3.14').f == '3.14'

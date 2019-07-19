@@ -106,8 +106,9 @@ def _is_model(cls: Type) -> Tuple[bool, Type, Optional[Type]]:
         polymorphic_type, cls = guess_polymorphic_type(cls)
     except TypeError:
         pass
+    member_type = remove_optional(cls)
     try:
-        return issubclass(remove_optional(cls), ModelT), cls, polymorphic_type
+        return issubclass(member_type, ModelT), member_type, polymorphic_type
     except TypeError:  # typing.Any cannot be used with subclass
         return False, cls, None
 
@@ -328,6 +329,7 @@ class Record(Model, abstract=True):
             parent: FieldDescriptorT = None) -> FieldMap:
         fields = options.fields
         defaults = options.defaults
+        date_parser = options.date_parser
         coerce = options.coerce
         index = {}
         for field, typ in fields.items():
@@ -349,6 +351,7 @@ class Record(Model, abstract=True):
                     coerce=coerce,
                     generic_type=typeinfo.generic_type,
                     member_type=typeinfo.member_type,
+                    date_parser=date_parser,
                 )
             else:
                 descr = descr.clone(
@@ -520,8 +523,9 @@ class Record(Model, abstract=True):
         ]
 
         fields = [
-            f'  {field!r}: {cls._BUILD_asdict_field(field)},'
-            for field in cls._options.fields
+            f'  {name!r}: {cls._BUILD_asdict_field(name, field)},'
+            for name, field in cls._options.descriptors.items()
+            if not field.exclude
         ]
 
         postamble = [
@@ -540,23 +544,23 @@ class Record(Model, abstract=True):
         return payload
 
     @classmethod
-    def _BUILD_asdict_field(cls, field: str) -> str:
+    def _BUILD_asdict_field(cls, name: str, field: FieldDescriptorT) -> str:
         modelattrs = cls._options.modelattrs
-        is_model = field in modelattrs
+        is_model = name in modelattrs
         if is_model:
-            generic = modelattrs[field]
+            generic = modelattrs[name]
             if generic is list or generic is tuple:
-                return (f'[v.to_representation() for v in self.{field}] '
-                        f'if self.{field} is not None else None')
+                return (f'[v.to_representation() for v in self.{name}] '
+                        f'if self.{name} is not None else None')
             elif generic is set:
-                return f'self.{field}'
+                return f'self.{name}'
             elif generic is dict:
                 return (f'{{k: v.to_representation() '
-                        f'  for k, v in self.{field}.items()}}')
+                        f'  for k, v in self.{name}.items()}}')
             else:
-                return f'_maybe_to_representation(self.{field})'
+                return f'_maybe_to_representation(self.{name})'
         else:
-            return f'self.{field}'
+            return f'self.{name}'
 
     def _derive(self, *objects: ModelT, **fields: Any) -> ModelT:
         data = self.asdict()

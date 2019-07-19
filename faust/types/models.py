@@ -1,5 +1,6 @@
 import abc
 import typing
+from datetime import datetime
 from typing import (
     Any,
     Callable,
@@ -20,6 +21,13 @@ from typing import (
 )
 from faust.exceptions import ValidationError  # XXX !!coupled
 from .codecs import CodecArg
+
+if typing.TYPE_CHECKING:
+    from .app import AppT as _AppT
+    from .tuples import Message as _Message
+else:
+    class _AppT: ...   # noqa
+    class _Message: ...  # noqa
 
 __all__ = [
     'CoercionHandler',
@@ -84,6 +92,8 @@ class ModelOptions(abc.ABC):
     validation: bool = False
     coerce: bool = False
     coercions: CoercionMapping = cast(CoercionMapping, None)
+
+    date_parser: Optional[Callable[[Any], datetime]] = None
 
     # If we set `attr = None` mypy will think the values can be None
     # on the instance, but if we don't set it Sphinx will find
@@ -212,6 +222,7 @@ class FieldDescriptorT(Generic[T]):
     parent: Optional['FieldDescriptorT']
     generic_type: Optional[Type]
     member_type: Optional[Type]
+    exclude: bool
 
     @abc.abstractmethod
     def __init__(self, *,
@@ -223,7 +234,20 @@ class FieldDescriptorT(Generic[T]):
                  parent: 'FieldDescriptorT' = None,
                  generic_type: Type = None,
                  member_type: Type = None,
+                 exclude: bool = None,
+                 date_parser: Callable[[Any], datetime] = None,
                  **kwargs: Any) -> None:
+        # we have to do this in __init__ or mypy will think
+        # this is a method
+        self.date_parser: Callable[[Any], datetime] = cast(
+            Callable[[Any], datetime], date_parser)
+
+    @abc.abstractmethod
+    def clone(self, **kwargs: Any) -> 'FieldDescriptorT':
+        ...
+
+    @abc.abstractmethod
+    def as_dict(self) -> Mapping[str, Any]:
         ...
 
     @abc.abstractmethod
@@ -235,7 +259,15 @@ class FieldDescriptorT(Generic[T]):
         ...
 
     @abc.abstractmethod
+    def should_coerce(self, value: Any) -> bool:
+        ...
+
+    @abc.abstractmethod
     def getattr(self, obj: ModelT) -> T:
+        ...
+
+    @abc.abstractmethod
+    def validation_error(self, reason: str) -> ValidationError:
         ...
 
     @property

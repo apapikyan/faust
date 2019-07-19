@@ -149,17 +149,25 @@ class Store(base.SerializedStore):
                  app: AppT,
                  table: CollectionT,
                  *,
-                 key_index_size: int = 10_000,
+                 key_index_size: int = None,
                  options: Mapping[str, Any] = None,
                  **kwargs: Any) -> None:
         if rocksdb is None:
-            raise ImproperlyConfigured(
-                'RocksDB bindings not installed: pip install python-rocksdb')
+            error = ImproperlyConfigured(
+                'RocksDB bindings not installed? pip install python-rocksdb')
+            try:
+                import rocksdb as _rocksdb  # noqa: F401
+            except Exception as exc:  # pragma: no cover
+                raise error from exc
+            else:  # pragma: no cover
+                raise error
         super().__init__(url, app, table, **kwargs)
         if not self.url.path:
             self.url /= self.table_name
         self.options = options or {}
         self.rocksdb_options = RocksDBOptions(**self.options)
+        if key_index_size is None:
+            key_index_size = app.conf.table_key_index_size
         self.key_index_size = key_index_size
         self._dbs = {}
         self._key_index = LRUCache(limit=self.key_index_size)

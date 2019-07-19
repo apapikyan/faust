@@ -11,6 +11,7 @@
     -- Goethe, *Faust: First part*
 
 .. module:: faust
+    :noindex:
 
 .. currentmodule:: faust
 
@@ -822,6 +823,7 @@ Signals are an implementation of the `Observer`_  design pattern.
 
 :sender: :class:`faust.App`
 :arguments: ``key, value, partition, timestamp, headers``
+:synchronous: This is a synchronous signal (do not use :keyword:`async def`).
 
 The ``on_produce_message`` signal as a synchronous signal called before
 producing messages.
@@ -1309,7 +1311,7 @@ If you want more careful control you can specify a list of modules to traverse i
     See also :ref:`project-layout-django`.
 
 Problem: Entry Point
-~~~~~~~~~~~~~~~~~~~-
+~~~~~~~~~~~~~~~~~~~~
 
 The :file:`proj/__main__.py` module can act as the entry point for this
 project:

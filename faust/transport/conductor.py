@@ -63,12 +63,14 @@ class ConductorCompiler:  # pragma: no cover
         app = conductor.app
         on_topic_buffer_full = app.sensors.on_topic_buffer_full
         acquire_flow_control: Callable = app.flow_control.acquire
+        wait_until_producer_ebb = app.producer.buffer.wait_until_ebb
         len_: Callable[[Any], int] = len
 
         async def on_message(message: Message) -> None:
             # when a message is received we find all channels
             # that subscribe to this message
             await acquire_flow_control()
+            await wait_until_producer_ebb()
             channels_n = len_(channels)
             if channels_n:
                 # we increment the reference count for this message in bulk
@@ -256,8 +258,13 @@ class Conductor(ConductorT, Service):
 
     async def wait_for_subscriptions(self) -> None:
         """Wait for consumer to be subscribed."""
-        self._subscription_done = asyncio.Future(loop=self.loop)
+        if self._subscription_done is None:
+            self._subscription_done = asyncio.Future(loop=self.loop)
         await self._subscription_done
+
+    async def maybe_wait_for_subscriptions(self) -> None:
+        if self._subscription_done is not None:
+            await self._subscription_done
 
     async def _update_indices(self) -> Iterable[str]:
         self._topic_name_index.clear()

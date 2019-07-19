@@ -39,6 +39,7 @@ from .exceptions import ImproperlyConfigured, Skip
 from .types import AppT, ConsumerT, EventT, K, ModelArg, ModelT, TP, TopicT
 from .types.joins import JoinT
 from .types.models import FieldDescriptorT
+from .types.serializers import SchemaT
 from .types.streams import (
     GroupByKeyArg,
     JoinableT,
@@ -558,7 +559,7 @@ class Stream(StreamT[T_co], Service):
                 'Agent with concurrency>1 cannot use stream.group_by!')
         if not name:
             if isinstance(key, FieldDescriptorT):
-                name = cast(FieldDescriptorT, key).ident
+                name = key.ident
             else:
                 raise TypeError(
                     'group_by with callback must set name=topic_suffix')
@@ -617,12 +618,13 @@ class Stream(StreamT[T_co], Service):
 
     async def _format_key(self, key: GroupByKeyArg, value: T_contra) -> str:
         if isinstance(key, FieldDescriptorT):
-            return cast(FieldDescriptorT, key).getattr(cast(ModelT, value))
+            return key.getattr(cast(ModelT, value))
         return await maybe_async(cast(Callable, key)(value))
 
     def derive_topic(self,
                      name: str,
                      *,
+                     schema: SchemaT = None,
                      key_type: ModelArg = None,
                      value_type: ModelArg = None,
                      prefix: str = '',
@@ -643,6 +645,7 @@ class Stream(StreamT[T_co], Service):
         if isinstance(self.channel, TopicT):
             return self.channel.derive_topic(
                 topics=[name],
+                schema=schema,
                 key_type=key_type,
                 value_type=value_type,
                 prefix=prefix,
@@ -710,7 +713,7 @@ class Stream(StreamT[T_co], Service):
     async def send(self, value: T_contra) -> None:
         """Send value into stream locally (bypasses topic)."""
         if isinstance(self.channel, ChannelT):
-            await cast(ChannelT, self.channel).put(value)
+            await self.channel.put(value)
         else:
             raise NotImplementedError(
                 'Cannot send to non-topic channel stream.')
